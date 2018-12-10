@@ -1,0 +1,222 @@
+#include <SPI.h>
+#include <WiFi.h>
+#include <Ultrasonic.h> // Call ultrasonic library
+
+char server[] = "mail.smtp2go.com";
+int port = 2525; // You can also try using Port Number 25, 8025 or 587.
+
+//Specify digital pin on the Arduino that the positive lead of piezo buzzer is attached.
+const int piezoPin = 8;
+const int ultrasonicPin = 6;
+
+Ultrasonic ultrasonic(ultrasonicPin); // Library setting
+WiFiClient client;
+
+char ssid[] = "cs";     //  your network SSID (name)/0024
+char pass[] = "gkmrxuW6";  // your network password/orangeshrub002
+int status = WL_IDLE_STATUS;     // the Wifi radio's status
+
+void setup() {
+  //Initialize serial and wait for port to open:
+  Serial.begin(9600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+
+  delay(1000);
+
+  // check for the presence of the shield:
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("WiFi shield not present");
+    // don't continue:
+    while (true);
+  }
+
+  String fv = WiFi.firmwareVersion();
+  Serial.println(fv);
+  if (fv != "1.1.0") {
+    Serial.println("Please upgrade the firmware");
+  }
+
+  // attempt to connect to Wifi network:
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to WPA SSID: ");
+    Serial.println(ssid);
+    // Connect to WPA/WPA2 network:
+    status = WiFi.begin(ssid, pass);
+
+    // wait 10 seconds for connection:
+    delay(10000);
+  }
+
+  // you're connected now, so print out the data:
+  Serial.print("You're connected to the network");
+}
+
+void loop()
+{
+  long distance;
+  distance = ultrasonic.MeasureInCentimeters();
+  
+  Serial.print(distance);
+  Serial.println(" mm");
+  if(distance < 15){
+    tone(piezoPin, 1000); //- (distance * 20)
+    delay(5000);
+    tone(piezoPin, 800);
+    noTone(piezoPin);
+  }
+  delay(500);
+
+  if (distance < 15)
+  {
+    if (sendEmail()) Serial.println(F("Email sent"));
+    else Serial.println(F("Email failed"));
+  }
+}
+
+byte sendEmail()
+{
+  byte thisByte = 0;
+  byte respCode;
+
+  if (client.connect(server, port) == 1) {
+    Serial.println(F("connected"));
+  } else {
+    Serial.println(F("connection failed"));
+    return 0;
+  }
+
+  if (!eRcv()) return 0;
+
+  Serial.println(F("Sending hello"));
+  client.print("EHLO ");
+  client.println(WiFi.localIP());
+  
+  if (!eRcv()) return 0;
+
+  Serial.println(F("Sending auth login"));
+  client.println("auth login");
+  if (!eRcv()) return 0;
+
+  Serial.println(F("sending email adress"));
+  // change to your base 64 encoded email adress
+  client.println(F("am9zaHVhLm5pY29sQHlvcmtzai5hYy51aw=="));
+
+
+  if (!eRcv()) return 0;
+  
+  Serial.println(F("Sending Password"));
+  // change to your base64 encoded password
+  client.println(F("azlEbFhiSTBycVpq"));
+
+
+  if (!eRcv()) return 0;
+
+  // change to your email address (sender)
+  Serial.println(F("Sending From"));
+  client.println("MAIL From: joshua.nicol@yorksj.ac.uk");
+  if (!eRcv()) return 0;
+
+  // change to recipient address
+  Serial.println(F("Sending To"));
+  client.println("RCPT To: joshua.nicol@btinternet.com");
+  if (!eRcv()) return 0;
+
+  Serial.println(F("Sending DATA"));
+  client.println("DATA");
+  if (!eRcv()) return 0;
+
+  Serial.println(F("Sending email"));
+
+  // change to recipient address
+  client.println("To: mdc joshua.nicol@btinternet.com");
+
+  // change to your address
+  client.println("From: Arduino joshua.nicol@yorksj.ac.uk");
+
+  client.println("Subject: Intruder alarm");
+
+  client.println("ALERT! the alarm has been triggered.");
+
+  client.println(".");
+
+  if (!eRcv()) return 0;
+
+  Serial.println(F("Sending QUIT"));
+  client.println("QUIT");
+  if (!eRcv()) return 0;
+
+  client.stop();
+
+  Serial.println(F("disconnected"));
+
+  return 1;
+}
+
+byte eRcv()
+{
+  byte respCode;
+  byte thisByte;
+  int loopCount = 0;
+
+  while (!client.available()) {
+    delay(1);
+    loopCount++;
+
+    // if nothing received for 10 seconds, timeout
+    if (loopCount > 10000) {
+      client.stop();
+      Serial.println(F("\r\nTimeout"));
+      return 0;
+    }
+  }
+
+  respCode = client.peek();
+
+  while (client.available())
+  {
+    thisByte = client.read();
+    Serial.write(thisByte);
+  }
+
+  if (respCode >= '4')
+  {
+    efail();
+    return 0;
+  }
+
+  return 1;
+}
+
+
+void efail()
+{
+  byte thisByte = 0;
+  int loopCount = 0;
+
+  client.println(F("QUIT"));
+
+  while (!client.available()) {
+    delay(1);
+    loopCount++;
+
+    // if nothing received for 10 seconds, timeout
+    if (loopCount > 10000) {
+      client.stop();
+      Serial.println(F("\r\nTimeout"));
+      return;
+    }
+  }
+
+  while (client.available())
+  {
+    thisByte = client.read();
+    Serial.write(thisByte);
+  }
+
+  client.stop();
+
+  Serial.println(F("disconnected"));
+}
+
